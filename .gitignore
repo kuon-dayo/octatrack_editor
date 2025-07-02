@@ -1,1 +1,8 @@
-venv/
+octatrack_editor_venv/
+
+# Pythonキャッシュ
+__pycache__/
+*.pyc
+*.pyo
+
+#
