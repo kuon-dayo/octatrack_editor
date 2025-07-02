@@ -21,6 +21,7 @@ class MainWindow(QMainWindow):
         v.addWidget(self.wave)
 
         self.list = QListWidget(); v.addWidget(self.list)
+        self.list.currentRowChanged.connect(self.select)
 
         load_btn = QPushButton("Load…"); v.addWidget(load_btn)
         load_btn.clicked.connect(self.load_files)
