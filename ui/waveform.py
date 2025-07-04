@@ -117,9 +117,12 @@ class WaveformView(QWidget):
         for x, (lo, hi) in enumerate(zip(mins, maxs)):
             y_hi = mid - hi * scale
             y_lo = mid - lo * scale
-            path.moveTo(x, float(y_hi))
-            path.lineTo(x, float(y_lo))
-        painter.setPen(QPen(QColor("lightgray"), 1))
+            if hi == lo:
+                painter.drawPoint(x, int(y_hi))      # ★ 点描画
+            else:
+                path.moveTo(x, float(y_hi))
+                path.lineTo(x, float(y_lo))
+        painter.setPen(QPen(QColor("black"), 1))
         painter.drawPath(path)
         painter.end()
 
@@ -161,27 +164,57 @@ class WaveformView(QWidget):
 
 
     def zoom(self, factor: float):
+        """
+        factor > 1 : 拡大 (ズームイン)
+        factor < 1 : 縮小 (ズームアウト)
+        """
         w = self.width()
-        old_spp = self.samples_pp
-        center  = self.offset + (w * old_spp) // 2
+        if w <= 0 or len(self.data) == 0:
+            return
 
-        max_spp = max(1, len(self.data) // w) if w > 0 else 1
-        # 量子化のズレを解消するため、ceil/floor を使い分け
+        old_spp = self.samples_pp
+        # 最小ズーム（最も細かく）：１サンプル／ピクセル
+        min_spp = 1
+        # 最大ズーム（最も粗く）：ウィジェット幅に対してデータ全長が１ピクセル以上を保つ
+        max_spp = max(1, len(self.data) // w)
+
+        # ──────────── ここで拡大・縮小の上限チェック ────────────
+        # ズームイン（factor>1）してももう最小に達していたら抜ける
+        if factor > 1 and old_spp <= min_spp:
+            return
+        # ズームアウト（factor<1）してももう最大に達していたら抜ける
+        if factor < 1 and old_spp >= max_spp:
+            return
+
+        # ──────────── 新しい samples_pp を計算 ────────────
         raw = old_spp / factor
         if factor < 1:
-            new_spp = min(max_spp, max(1, math.ceil(raw)))
+            new_spp = math.ceil(raw)
         else:
-            new_spp = min(max_spp, max(1, math.floor(raw)))
+            new_spp = math.floor(raw)
+        # clamp
+        new_spp = max(min_spp, min(new_spp, max_spp))
 
+        # 変化がなければ何もしない
+        if new_spp == old_spp:
+            return
+
+        # ──────────── 更新 ────────────
         self.samples_pp = new_spp
-        # 新しいオフセット
-        new_vis = w * new_spp
-        new_off = max(0, center - new_vis // 2)
-        self.offset = min(new_off, max(0, len(self.data) - new_vis))
+
+        # 中心点を維持してオフセットを再計算
+        center = self.offset + (w * old_spp) // 2
+        new_vis = w * self.samples_pp
+        # データ範囲最終チェック
+        self.offset = min(
+            max(0, center - new_vis // 2),
+            max(0, len(self.data) - new_vis)
+        )
 
         self._update_scrollbar_range()
         self._render_waveform()
         self.update()
+
 
 
     def zoom_in(self):
@@ -227,24 +260,39 @@ class WaveformView(QWidget):
 # テスト用スタンドアロン起動
 if __name__ == '__main__':
     import sys
-    from PySide6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication, QPushButton, QVBoxLayout, QWidget
     import numpy as np
     import soundfile as sf
 
     app = QApplication(sys.argv)
 
+    # レイアウト用ウィジェット
+    root = QWidget()
+    layout = QVBoxLayout(root)
+
     w = WaveformView()
-    
+    layout.addWidget(w)
+
+    # Print Sizeボタン
+    def print_waveform_size():
+        w_px = w.width()
+        sb_h = w.scrollbar.sizeHint().height()
+        h_px = max(1, w.height() - sb_h)
+        print(f"Waveform pixmap size: {w_px} x {h_px}")
+
+    btn = QPushButton("Print Size")
+    btn.clicked.connect(print_waveform_size)
+    layout.addWidget(btn)
+
     wav_path = "/Users/tokushigekuon/Documents/03_My OctaTrack/Tracks/Cropped/142_Controlled Chaos .wav"
     data, sr = sf.read(wav_path, always_2d=False)
     if data.ndim == 2:
         data = data.mean(axis=1)  # モノラル化
 
     w.set_data(data, sr)
-  
 
-    w.resize(800, 200)
-    w.show()
+    root.resize(800, 240)
+    root.show()
 
     sys.exit(app.exec())
 
